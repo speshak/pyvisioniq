@@ -1,0 +1,14 @@
+[Unit]
+Description=Python Visualization for Ioniq 5 Control Service
+After=network.target
+
+[Service]
+Type=simple
+User=pyvisioniq
+WorkingDirectory=/opt/pyvisioniq
+ExecStart=/opt/pyvisioniq/venv/bin/python /opt/pyvisioniq/pyvisioniq
+Restart=on-failure
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target
