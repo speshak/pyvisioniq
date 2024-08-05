@@ -6,6 +6,16 @@ import sys
 from datetime import datetime, timedelta
 from threading import Thread
 from hyundai_kia_connect_api import VehicleManager
+from hyundai_kia_connect_api.exceptions import (
+    AuthenticationError,
+    APIError,
+    RateLimitingError,
+    NoDataFound,
+    ServiceTemporaryUnavailable,
+    DuplicateRequestError,
+    RequestTimeoutError,
+    InvalidAPIResponseError,
+)
 from flask import Flask, render_template, Response
 from prometheus_client import Gauge, generate_latest
 import matplotlib.pyplot as plt
@@ -62,19 +72,44 @@ def fetch_and_update_metrics():
     '''Fetch data from the vehicle API and update Prometheus metrics.'''
     # Refresh the token and update vehicle data
     vehicle = None
+    # pylint: disable=broad-exception-caught
     try:
         vm.check_and_refresh_token()
-        vm.update_all_vehicles_with_cached_state()
-        vm.force_refresh_vehicle_state(VEHICLE_ID)
-        vehicle = vm.get_vehicle(VEHICLE_ID)
-    except KeyError as e:
-        print(f"KeyError: {e}. API response might not contain expected data.", file=sys.stderr)
-    except Exception as e:
-        print(f"Error fetching data: {e}", file=sys.stderr)
 
-    if vehicle is None:  # Handle the case where vehicle data couldn't be fetched
-        print("Vehicle data not available. Skipping update.", file=sys.stderr)
-        return
+        vm.update_vehicle_with_cached_state(VEHICLE_ID)
+        vehicle = vm.get_vehicle(VEHICLE_ID)
+    except (
+        KeyError,
+        ConnectionError,
+        AuthenticationError,
+        APIError,
+        RateLimitingError,
+        NoDataFound,
+        ServiceTemporaryUnavailable,
+        DuplicateRequestError,
+        RequestTimeoutError,
+        InvalidAPIResponseError,
+    ) as error:
+        print(f"Hyundai/Kia API error: {error}", file=sys.stderr)
+    except Exception as unexpected_error:
+        print(f"Unexpected error: {unexpected_error}. Investigate further.", file=sys.stderr)
+
+    # except KeyError as key_error:  # Specific exception
+    #     print(f"KeyError: {key_error}. API response might be missing data.", file=sys.stderr)
+    # except ConnectionError as conn_error:  # Specific exception
+    #     print(f"ConnectionError: {conn_error}. Unable to connect to API.", file=sys.stderr)
+    # except Exception as general_error:  # General exception (last resort)
+    #     print(f"Unexpected error: {general_error}. Check library or API documentation.", file=sys.stderr)
+
+
+    if vehicle is None or vehicle.last_updated_at < datetime.now() - interval_between_requests:
+        print("Cached data is stale, force refreshing...", file=sys.stderr)
+        vm.force_refresh_vehicle_state(VEHICLE_ID)
+        vehicle = vm.get_vehicle(VEHICLE_ID)  # Get updated vehicle data
+
+    if vehicle is None:
+        print("Vehicle data not available after refresh. Skipping update.", file=sys.stderr)
+        return  # Exit the function early
 
     print('Updating...', file=sys.stderr)
     # Fetch the data
