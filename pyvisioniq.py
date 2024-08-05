@@ -2,6 +2,7 @@
 import time
 import os
 import io
+import sys
 from datetime import datetime, timedelta
 from threading import Thread
 from hyundai_kia_connect_api import VehicleManager
@@ -60,10 +61,22 @@ interval_between_requests = timedelta(seconds=86400 // APILIMIT)
 def fetch_and_update_metrics():
     '''Fetch data from the vehicle API and update Prometheus metrics.'''
     # Refresh the token and update vehicle data
-    vm.check_and_refresh_token()
-    vm.update_all_vehicles_with_cached_state()
-    vehicle = vm.get_vehicle(VEHICLE_ID)
+    vehicle = None
+    try:
+        vm.check_and_refresh_token()
+        vm.update_all_vehicles_with_cached_state()
+        vm.force_refresh_vehicle_state(VEHICLE_ID)
+        vehicle = vm.get_vehicle(VEHICLE_ID)
+    except KeyError as e:
+        print(f"KeyError: {e}. API response might not contain expected data.", file=sys.stderr)
+    except Exception as e:
+        print(f"Error fetching data: {e}", file=sys.stderr)
 
+    if vehicle is None:  # Handle the case where vehicle data couldn't be fetched
+        print("Vehicle data not available. Skipping update.", file=sys.stderr)
+        return
+
+    print('Updating...', file=sys.stderr)
     # Fetch the data
     charging_level = vehicle.ev_battery_percentage
     mileage = vehicle.odometer
@@ -99,7 +112,7 @@ def fetch_and_update_metrics():
           f"Mileage: {mileage} miles, " +
           f"Battery Health: {battery_health}%," +
           f"EV Driving Range: {ev_driving_range} miles," +
-          f"long: {longitude}, lat: {latitude}")
+          f"long: {longitude}, lat: {latitude}", file=sys.stderr)
 
 def scheduled_update():
     '''Schedule periodic updates to fetch and
@@ -114,15 +127,26 @@ def scheduled_update():
 def rangeplot():
     '''Generate a plot of the charging level over time.'''
     data = pd.read_csv(CSV_FILE)  # Load data directly from CSV using Pandas
-    data['Timestamp'] = pd.to_datetime(data['Timestamp'])
+
+    # Ensure the 'Timestamp' column is correctly parsed as datetime
+    data['Timestamp'] = pd.to_datetime(data['Timestamp'], errors='coerce')
+
+    # Set 'Timestamp' as the index
+    data.set_index('Timestamp', inplace=True)
+
     plt.figure(figsize=(10, 6))
     plt.plot(data.index, data['EV Driving Range'], label='EV Driving Range', marker='o', linestyle='-')
     plt.xlabel('Timestamp')
-    plt.ylabel('%')
+    plt.ylabel('Miles')
     plt.title('EV Driving Range Over Time')
     plt.legend()
     plt.xticks(rotation=45, ha="right")
+
+    # Set the major locator to a reasonable interval
+    plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator())
     plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%m/%d/%y %H:%M'))
+    plt.tight_layout()  # Adjust the layout to prevent clipping
+
     plt.grid(axis='y')
     fig = plt.gcf()
     plt.close()
@@ -131,7 +155,12 @@ def rangeplot():
 def chargeplot():
     '''Generate a plot of the charging level over time.'''
     data = pd.read_csv(CSV_FILE)  # Load data directly from CSV using Pandas
-    data['Timestamp'] = pd.to_datetime(data['Timestamp'])
+
+    # Ensure the 'Timestamp' column is correctly parsed as datetime
+    data['Timestamp'] = pd.to_datetime(data['Timestamp'], errors='coerce')
+
+    # Set 'Timestamp' as the index
+    data.set_index('Timestamp', inplace=True)
     plt.figure(figsize=(10, 6))
     plt.plot(data.index, data['Charging Level'], label='Charging Level', marker='o', linestyle='-')
     plt.xlabel('Timestamp')
@@ -139,7 +168,12 @@ def chargeplot():
     plt.title('Charging Level Over Time')
     plt.legend()
     plt.xticks(rotation=45, ha="right")
+
+    # Set the major locator to a reasonable interval
+    plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator())
     plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%m/%d/%y %H:%M'))
+    plt.tight_layout()  # Adjust the layout to prevent clipping
+
     plt.grid(axis='y')
     fig = plt.gcf()
     plt.close()
@@ -148,7 +182,12 @@ def chargeplot():
 def mileageplot():
     '''Generate a plot of the mileage over time.'''
     data = pd.read_csv(CSV_FILE)  # Load data directly from CSV using Pandas
-    data['Timestamp'] = pd.to_datetime(data['Timestamp'])
+
+    # Ensure the 'Timestamp' column is correctly parsed as datetime
+    data['Timestamp'] = pd.to_datetime(data['Timestamp'], errors='coerce')
+
+    # Set 'Timestamp' as the index
+    data.set_index('Timestamp', inplace=True)
     plt.figure(figsize=(10,6))
     plt.plot(data.index, data['Mileage'], label='Mileage', marker='x', linestyle='-')
     plt.xlabel('Timestamp')
@@ -156,7 +195,12 @@ def mileageplot():
     plt.title('Total Miles')
     plt.legend()
     plt.xticks(rotation=45, ha="right")
+
+    # Set the major locator to a reasonable interval
+    plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator())
     plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%m/%d/%y %H:%M'))
+    plt.tight_layout()  # Adjust the layout to prevent clipping
+
     plt.grid(axis='y')
     fig = plt.gcf()
     plt.close()
