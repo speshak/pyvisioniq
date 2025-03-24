@@ -311,6 +311,16 @@ def endpointcharge():
     '''Endpoint to serve the charge level plot as a PNG image.'''
     return charge_png()
 
+
+@app.route('/health')
+def health():
+    '''Healthcheck endpoint'''
+    if vm.check_and_refresh_token():
+        return Response("OK", status=200, mimetype="text/plain")
+
+    return Response("Not OK", status=500, mimetype="text/plain")
+
+
 if __name__ == "__main__":
     if UPDATE:
     # Start the scheduled update in a separate thread
